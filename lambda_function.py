@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # coding:utf-8
+from itertools import groupby
 import os
 import datetime
 import json
@@ -20,6 +21,9 @@ REDIRECT_URI = 'https://www.healthplanet.jp/success.html'
 DEFAULT_SCOPES = 'innerscan'
 DEFAULT_RESPONSE_TYPE = 'code'
 DEFAULT_GRANT_TYPE = 'authorization_code'
+WEIGHT_TAG = '6021'
+FAT_PARCENTAGE_TAG = '6022'
+SCOPE_DAYS = 1
 
 basicConfig(level=DEBUG)
 logger = getLogger(__name__)
@@ -67,13 +71,12 @@ def get_token(code):
 
 
 def get_innerscan(token, from_date):
-    from_str = from_date.strftime('%Y%m%d%M%S')
-    print(from_str)
+    from_str = from_date.strftime('%Y%m%d%H%M%S')
     payload = {
         'access_token': token,
         'date': 1,
-        'tag': [6021, 6022, 6023],
-        'from': from_date.strftime('%Y%m%d%H%M%S'),
+        'tag': '6021,6022',
+        'from': from_str,
     }
     return requests.get(uri('/status/innerscan.json'), params=payload)
 
@@ -103,17 +106,31 @@ def get_data():
     code = get_code(approve_response.text)
     token_response = get_token(code)
     access_token = token_response.json()['access_token']
-    innerscan_response = get_innerscan(access_token, dt.now() - datetime.timedelta(days=2))
-    print(innerscan_response.text)
+    innerscan_response = get_innerscan(access_token, dt.now() - datetime.timedelta(days=SCOPE_DAYS))
     return innerscan_response.json()
 
 
-def post_process(json):
-    data = json['data']
-    weights = filter(lambda m: m['tag'] == '6021', data)
-    formats = ["日時:{0} 体重: {1}".format(weight['date'], weight['keydata']) for weight in weights]
-    print(formats)
-    return '\n'.join(str(e) for e in formats)
+def group_process(date, dept_group):
+    weights = filter(lambda m: m['tag'] == WEIGHT_TAG, dept_group)
+    weight_formats = ["体重: {1}".format(date, weight['keydata']) for weight in weights]
+    return ["日時: {0}".format(date)] + weight_formats
+
+
+def post_process(data):
+    datum = sorted(data['data'], key=lambda x: x['date'])
+    dept_emp_groups = groupby(datum, lambda e: e['date'])
+    formats = [group_process(date, dept_group) for date, dept_group in dept_emp_groups]
+    return '\n'.join(str(e) for e in flatten(list(formats)))
+
+
+def flatten(alist):
+    new_list = []
+    for item in alist:
+        if isinstance(item, (list, tuple)):
+            new_list.extend(flatten(item))
+        else:
+            new_list.append(item)
+    return new_list
 
 
 def lambda_handler(event, context):
