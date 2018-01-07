@@ -112,14 +112,16 @@ def get_data():
 
 def group_process(date, dept_group):
     weights = filter(lambda m: m['tag'] == WEIGHT_TAG, dept_group)
-    weight_formats = ["体重: {1}".format(date, weight['keydata']) for weight in weights]
-    return ["日時: {0}".format(date)] + weight_formats
+    fats = filter(lambda m: m['tag'] == FAT_PARCENTAGE_TAG, dept_group)
+    weight_formats = ["体重: {0}".format(weight['keydata']) for weight in weights]
+    fat_formats = ["体脂肪率: {0}".format(fat['keydata']) for fat in fats]
+    return ["日時: {0}".format(date)] + weight_formats + fat_formats
 
 
 def post_process(data):
     datum = sorted(data['data'], key=lambda x: x['date'])
     dept_emp_groups = groupby(datum, lambda e: e['date'])
-    formats = [group_process(date, dept_group) for date, dept_group in dept_emp_groups]
+    formats = [group_process(date, list(dept_group)) for date, dept_group in dept_emp_groups]
     return '\n'.join(str(e) for e in flatten(list(formats)))
 
 
@@ -141,6 +143,7 @@ def lambda_handler(event, context):
         'text': post_process(content),
     }
     try:
+        logger.info(json.dumps(slack_message))
         requests.post(SLACK_POST_URL, data=json.dumps(slack_message).encode('utf-8'))
         logger.info("Message posted to %s", slack_message['channel'])
     except requests.exceptions.RequestException as e:
